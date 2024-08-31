@@ -13,4 +13,5 @@ BOOL opensshAction(BOOL enable);
 void bootstrapAction();
 void unbootstrapAction();
 BOOL updateOpensshStatus(BOOL notify);
-void fixNotification();
+void resetMobilePassword();
+void URLSchemesAction(BOOL enable);

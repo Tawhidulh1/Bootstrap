@@ -110,15 +110,15 @@ void initFromSwiftUI()
         }
     }
 
-    [AppDelegate addLogText:[NSString stringWithFormat:@"ios-version: %@",UIDevice.currentDevice.systemVersion]];
+    [AppDelegate addLogText:[NSString stringWithFormat:Localized(@"ios-version: %@"),UIDevice.currentDevice.systemVersion]];
 
     struct utsname systemInfo;
     uname(&systemInfo);
-    [AppDelegate addLogText:[NSString stringWithFormat:@"device-model: %s",systemInfo.machine]];
+    [AppDelegate addLogText:[NSString stringWithFormat:Localized(@"device-model: %s"),systemInfo.machine]];
 
-    [AppDelegate addLogText:[NSString stringWithFormat:@"app-version: %@",NSBundle.mainBundle.infoDictionary[@"CFBundleShortVersionString"]]];
+    [AppDelegate addLogText:[NSString stringWithFormat:Localized(@"app-version: %@"),NSBundle.mainBundle.infoDictionary[@"CFBundleShortVersionString"]]];
 
-    [AppDelegate addLogText:[NSString stringWithFormat:@"boot-session: %@",getBootSession()]];
+    [AppDelegate addLogText:[NSString stringWithFormat:Localized(@"boot-session: %@"),getBootSession()]];
 
     [AppDelegate addLogText: isBootstrapInstalled()? Localized(@"bootstrap installed"):Localized(@"bootstrap not installed")];
     [AppDelegate addLogText: isSystemBootstrapped()? Localized(@"system bootstrapped"):Localized(@"system not bootstrapped")];
@@ -136,7 +136,7 @@ void initFromSwiftUI()
         }
 
         [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationWillEnterForegroundNotification object:nil queue:nil usingBlock:^(NSNotification * _Nonnull note) {
-            checkServer();
+            if(isSystemBootstrapped()) checkServer();
         }];
     }
 
@@ -144,7 +144,7 @@ void initFromSwiftUI()
         if([UIApplication.sharedApplication canOpenURL:[NSURL URLWithString:@"filza://"]]
            || [LSPlugInKitProxy pluginKitProxyForIdentifier:@"com.tigisoftware.Filza.Sharing"])
         {
-            [AppDelegate showMesage:Localized(@"It seems that you have the Filza app installed, which may be detected as jailbroken. You can enable Tweak for it to hide it.") title:Localized(@"Warning")];
+            [AppDelegate showMesage:Localized(@"It seems that you have the Filza installed in trollstore, which may be detected as jailbroken. You can remove it from trollstore then install Filza from roothide repo in Sileo.") title:Localized(@"Warning")];
         }
     }
 }
@@ -197,23 +197,6 @@ void rebuildappsAction()
     });
 }
 
-void fixNotification()
-{
-    dispatch_async(dispatch_get_global_queue(0, 0), ^{
-        [AppDelegate showHudMsg:Localized(@"Applying")];
-
-        NSString* log=nil;
-        NSString* err=nil;
-        int status = spawnBootstrap((char*[]){"/bin/sh", "/basebin/fixnotification.sh", NULL}, nil, nil);
-        if(status==0) {
-            [AppDelegate showMesage:Localized(@"done") title:@""];
-        } else {
-            [AppDelegate showMesage:[NSString stringWithFormat:@"%@\n\nstderr:\n%@",log,err] title:[NSString stringWithFormat:@"code(%d)",status]];
-        }
-        [AppDelegate dismissHud];
-    });
-}
-
 void reinstallPackageManager()
 {
     dispatch_async(dispatch_get_global_queue(0, 0), ^{
@@ -257,7 +240,7 @@ void reinstallPackageManager()
 
 int rebuildIconCache()
 {
-    AppList* tsapp = [AppList appWithBundleIdentifier:@"com.opa334.TrollStore"];
+AppList* tsapp = [AppList appWithBundleIdentifier:@"com.opa334.TrollStore"];
     if(!tsapp) {
         STRAPLOG("trollstore not found!");
         return -1;
@@ -320,6 +303,36 @@ void tweaEnableAction(BOOL enable)
     } else if([NSFileManager.defaultManager fileExistsAtPath:jbroot(@"/var/mobile/.tweakenabled")]) {
         ASSERT([NSFileManager.defaultManager removeItemAtPath:jbroot(@"/var/mobile/.tweakenabled") error:nil]);
     }
+}
+
+void URLSchemesToggle(BOOL enable)
+{
+    if(enable) {
+        ASSERT([[NSString new] writeToFile:jbroot(@"/var/mobile/.allow_url_schemes") atomically:YES encoding:NSUTF8StringEncoding error:nil]);
+    } else if([NSFileManager.defaultManager fileExistsAtPath:jbroot(@"/var/mobile/.allow_url_schemes")]) {
+        ASSERT([NSFileManager.defaultManager removeItemAtPath:jbroot(@"/var/mobile/.allow_url_schemes") error:nil]);
+    }
+    
+    rebuildappsAction();
+}
+
+void URLSchemesAction(BOOL enable)
+{
+    if(!isSystemBootstrapped()) return;
+    
+    if(!enable) {
+        URLSchemesToggle(enable);
+        return;
+    }
+    
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:Localized(@"Warning") message:Localized(@"Enabling URL Schemes may result in jailbreak detection. Are you sure you want to continue?") preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:Localized(@"NO") style:UIAlertActionStyleDefault handler:^(UIAlertAction *action){
+        [NSNotificationCenter.defaultCenter postNotificationName:@"URLSchemesCancelNotification" object:nil];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:Localized(@"YES") style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
+        URLSchemesToggle(enable);
+    }]];
+    [AppDelegate showAlert:alert];
 }
 
 BOOL opensshAction(BOOL enable)
@@ -482,6 +495,31 @@ void unbootstrapAction()
             [AppDelegate showAlert:alert];
 
         });
+
+    }]];
+    [AppDelegate showAlert:alert];
+}
+
+void resetMobilePassword()
+{
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:Localized(@"Reset Mobile Password") message:Localized(@"Set the mobile password of your device, this can also be used for root access using sudo. If you want to set the root password, you can do so from a mobile shell using \"sudo passwd root\"") preferredStyle:UIAlertControllerStyleAlert];
+    
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+    }];
+    
+    [alert addAction:[UIAlertAction actionWithTitle:Localized(@"Cancel") style:UIAlertActionStyleDefault handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:Localized(@"Confirm") style:UIAlertActionStyleDefault handler:^(UIAlertAction *action){
+        
+        NSString* log=nil;
+        NSString* err=nil;
+        NSString* pwcmd = [NSString stringWithFormat:@"printf \"%%s\\n\" \"%@\" | /usr/sbin/pw usermod 501 -h 0", alert.textFields.lastObject.text];
+        const char* args[] = {"/usr/bin/dash", "-c", pwcmd.UTF8String, NULL};
+        int status = spawnBootstrap(args, &log, &err);
+        if(status == 0 || status == 67) {
+            [AppDelegate showMesage:Localized(@"done") title:@""];
+        } else {
+            [AppDelegate showMesage:[NSString stringWithFormat:@"%@\n\nstderr:\n%@",log,err] title:[NSString stringWithFormat:@"code(%d)",status]];
+        }
 
     }]];
     [AppDelegate showAlert:alert];
